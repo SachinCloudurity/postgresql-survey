@@ -1,12 +1,11 @@
 from fastapi import FastAPI, Request, HTTPException
 import psycopg2
 
-
-hostname='localhost'
-database='new'
-username='postgres'
-pwd='sachcld15'
-portid=5432
+hostname = 'localhost'
+database = 'new'
+username = 'postgres'
+pwd = 'sachcld15'
+portid = 5432
 
 app = FastAPI()
 
@@ -17,6 +16,7 @@ conn = psycopg2.connect(
     password=pwd,
     port=portid
 )
+
 questions = {
     1: 'How many hours a day do you spend on your smartphone?',
     2: 'What genre of movies do you enjoy the most?',
@@ -34,6 +34,7 @@ questions = {
     14: 'What is your favorite car brand?',
     15: 'What is your age group?'
 }
+
 CREATE_USER_TABLE = '''CREATE TABLE IF NOT EXISTS Users (
     user_id SERIAL PRIMARY KEY,
     first_name VARCHAR(50) NOT NULL,
@@ -63,11 +64,13 @@ CREATE_RESPONSES_TABLE = '''CREATE TABLE IF NOT EXISTS Responses (
     PRIMARY KEY (response_id)
 );'''
 
-INSERT_RESPONSES_TABLE = '''INSERT INTO Responses (answer1, answer2, answer3, answer4, answer5, answer6, answer7, answer8, answer9, answer10, answer11, answer12, answer13, answer14, answer15) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);'''
+INSERT_RESPONSES_TABLE = '''INSERT INTO Responses (response_id, answer1, answer2, answer3, answer4, answer5, answer6, answer7, answer8, answer9, answer10, answer11, answer12, answer13, answer14, answer15) 
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);'''
 
-USERS = 'SELECT * FROM Users;'
-RESPONSES = 'SELECT * FROM Responses;'
-USER_RESPONSES = '''SELECT user_id,CONCAT(first_name, ' ', last_name) AS name, answer1, answer2, answer3, answer4, answer5, answer6, answer7, answer8, answer9, answer10, answer11, answer12, answer13, answer14, answer15 
+DELETE_RESPONSES = 'DELETE FROM Responses WHERE response_id = %s;'
+DELETE_USER = 'DELETE FROM Users WHERE user_id = %s;'
+
+USER_RESPONSES = '''SELECT user_id, CONCAT(first_name, ' ', last_name) AS name, answer1, answer2, answer3, answer4, answer5, answer6, answer7, answer8, answer9, answer10, answer11, answer12, answer13, answer14, answer15 
                     FROM Users JOIN Responses ON Users.user_id = Responses.response_id;'''
 
 @app.post('/users')
@@ -85,51 +88,58 @@ async def create_user(request: Request):
                 user_id = curr.fetchone()[0]
 
         return {'id': user_id, 'message': f'User {first_name} {last_name} registered!'}
-    except: raise HTTPException(status_code=400, detail="Error in updating user")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error in creating user: {str(e)}")
 
 @app.post('/responses')
-async def create_user(request: Request):
+async def create_responses(request: Request):
     try:
         data = await request.json()
-        answer1 = data['answer1']
-        answer2 = data['answer2']
-        answer3 = data['answer3']
-        answer4 = data['answer4']
-        answer5 = data['answer5']
-        answer6 = data['answer6']
-        answer7 = data['answer7']
-        answer8 = data['answer8']
-        answer9 = data['answer9']
-        answer10 = data['answer10']
-        answer11 = data['answer11']
-        answer12 = data['answer12']
-        answer13 = data['answer13']
-        answer14 = data['answer14']
-        answer15 = data['answer15']
+        user_id = data['user_id']
+        answers = [data[f'answer{i}'] for i in range(1, 16)]
 
         with conn:
             with conn.cursor() as curr:
                 curr.execute(CREATE_RESPONSES_TABLE)
-                curr.execute(INSERT_RESPONSES_TABLE, (answer1, answer2, answer3, answer4, answer5, answer6, answer7, answer8, answer9, answer10, answer11, answer12, answer13, answer14, answer15))
-        return {'message': f'Responses registered!'}
-    except: raise HTTPException(status_code=400, detail='Error in updating responses')
+                curr.execute(INSERT_RESPONSES_TABLE, (user_id, *answers))
+        return {'message': 'Responses registered!'}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error in creating responses: {str(e)}")
+
+@app.delete('/deleteuser')
+async def delete_user(request: Request):
+    try:
+        data = await request.json()
+        user_id = data['user_id']
+        
+        with conn:
+            with conn.cursor() as curr:
+                # Delete corresponding responses first
+                curr.execute(DELETE_RESPONSES, (user_id,))
+                # Delete the user
+                curr.execute(DELETE_USER, (user_id,))
+                if curr.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="User not found")
+
+        return {'message': 'User and corresponding responses deleted successfully'}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error in deleting user: {str(e)}")
 
 @app.get('/answers')
-async def answers():
+async def get_answers():
     try:
         with conn:
             with conn.cursor() as curr:
                 curr.execute(USER_RESPONSES)
-                combined_responses=curr.fetchall()
+                combined_responses = curr.fetchall()
                 
-
-        return {f'Here are the combined responses:{combined_responses}'}
-    except: raise HTTPException(status_code=400,detail='Error in fetching responses')
+        return {'responses': combined_responses}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error in fetching responses: {str(e)}")
 
 @app.get('/questions')
 def get_questions():
-    return f'Here are the questions:{questions}'
-
+    return {'questions': questions}
 
 @app.on_event("shutdown")
 def shutdown():
